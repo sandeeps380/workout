@@ -1,56 +1,63 @@
-from typing import List, Optional
+from contextlib import asynccontextmanager
+from datetime import datetime
+from typing import List
 
 from fastapi import Depends, FastAPI
-from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 import models
 from database import get_db, init_db
 
-app = FastAPI(title="Workout Tracker")
 
-
-@app.on_event("startup")
-def on_startup():
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     init_db()
+    yield
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
+
+app = FastAPI(
+    title="Workout Tracker",
+    description="A small API for logging and reviewing workout sets.",
+    lifespan=lifespan,
 )
 
 
-class WorkoutCreate(BaseModel):
-    exercise: str
-    sets: int
-    reps: int
-    weight: Optional[float] = None
+class WorkoutLogCreate(BaseModel):
+    date: str
+    day: int
+    exercise_index: int
+    exercise_name: str
+    kg: float
 
 
-class WorkoutOut(WorkoutCreate):
+class WorkoutLogResponse(WorkoutLogCreate):
     id: int
+    created_at: datetime
 
     class Config:
         from_attributes = True
 
 
-@app.get("/")
-def read_root():
-    return {"message": "Workout Tracker API"}
-
-
-@app.get("/workouts", response_model=List[WorkoutOut])
-def list_workouts(db: Session = Depends(get_db)):
-    return db.query(models.Workout).all()
-
-
-@app.post("/workouts", response_model=WorkoutOut)
-def create_workout(workout: WorkoutCreate, db: Session = Depends(get_db)):
-    db_workout = models.Workout(**workout.model_dump())
-    db.add(db_workout)
+@app.post("/log", response_model=WorkoutLogResponse)
+def create_log(entry: WorkoutLogCreate, db: Session = Depends(get_db)):
+    db_entry = models.WorkoutLog(**entry.model_dump())
+    db.add(db_entry)
     db.commit()
-    db.refresh(db_workout)
-    return db_workout
+    db.refresh(db_entry)
+    return db_entry
+
+
+@app.get("/history", response_model=List[WorkoutLogResponse])
+def get_history(exercise_name: str, db: Session = Depends(get_db)):
+    return (
+        db.query(models.WorkoutLog)
+        .filter(models.WorkoutLog.exercise_name == exercise_name)
+        .order_by(models.WorkoutLog.date.asc())
+        .all()
+    )
+
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
