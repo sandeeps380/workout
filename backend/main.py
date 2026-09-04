@@ -39,7 +39,7 @@ class WorkoutLogResponse(WorkoutLogCreate):
         from_attributes = True
 
 
-@app.post("/log", response_model=WorkoutLogResponse)
+@app.post("/log", response_model=WorkoutLogResponse, status_code=201)
 def create_log(entry: WorkoutLogCreate, db: Session = Depends(get_db)):
     db_entry = models.WorkoutLog(**entry.model_dump())
     db.add(db_entry)

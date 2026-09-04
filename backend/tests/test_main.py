@@ -2,12 +2,22 @@ import os
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-os.environ["DATABASE_PATH"] = "./test_workout.db"
+DB_PATH = "./test_workout.db"
+os.environ["DATABASE_PATH"] = DB_PATH
 
 import pytest
 from fastapi.testclient import TestClient
 
+from database import engine
 from main import app
+
+
+@pytest.fixture(scope="session", autouse=True)
+def clean_db():
+    yield
+    engine.dispose()
+    if os.path.exists(DB_PATH):
+        os.remove(DB_PATH)
 
 
 @pytest.fixture
@@ -16,13 +26,13 @@ def client():
         yield test_client
 
 
-def test_health(client):
+def test_health_returns_ok(client):
     response = client.get("/health")
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
 
 
-def test_log_and_history(client):
+def test_create_log_returns_201(client):
     log_entry = {
         "date": "2026-09-04",
         "day": 1,
@@ -30,10 +40,24 @@ def test_log_and_history(client):
         "exercise_name": "bench_press",
         "kg": 60.0,
     }
-    create_response = client.post("/log", json=log_entry)
-    assert create_response.status_code == 200
-    assert create_response.json()["exercise_name"] == "bench_press"
+    response = client.post("/log", json=log_entry)
+    assert response.status_code == 201
+    assert response.json()["exercise_name"] == "bench_press"
 
-    history_response = client.get("/history", params={"exercise_name": "bench_press"})
-    assert history_response.status_code == 200
-    assert len(history_response.json()) >= 1
+
+def test_history_returns_list_for_known_exercise(client):
+    log_entry = {
+        "date": "2026-09-04",
+        "day": 1,
+        "exercise_index": 0,
+        "exercise_name": "squat",
+        "kg": 100.0,
+    }
+    client.post("/log", json=log_entry)
+
+    response = client.get("/history", params={"exercise_name": "squat"})
+    assert response.status_code == 200
+    body = response.json()
+    assert isinstance(body, list)
+    assert len(body) >= 1
+    assert body[0]["exercise_name"] == "squat"
